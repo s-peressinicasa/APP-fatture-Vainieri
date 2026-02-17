@@ -7,7 +7,6 @@ venv/
 # Build
 build/
 dist/
-*.spec
 
 # Inno output
 installer/Output/
@@ -16,3 +15,6 @@ installer/Output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Note
+workflow app Vainieri.txt
