@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import shutil
 import tempfile
 import traceback
@@ -9,7 +10,7 @@ from typing import Optional
 
 import pandas as pd
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QAction, QFontMetrics
+from PySide6.QtGui import QAction, QFontMetrics, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFileDialog, QComboBox, QLineEdit, QMessageBox, QCheckBox,
@@ -69,6 +70,9 @@ def prepare_preview_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return df2
 
+def resource_path(relative_path: str) -> str:
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
 
 @dataclass
 class ReportResult:
@@ -104,6 +108,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setWindowIcon(QIcon(resource_path("assets/icon.ico")))
         self.setWindowTitle(f"{__app_name__}  —  v{__version__}")
 
         self._report_path: Optional[str] = None
@@ -500,6 +505,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication([])
+    app.setWindowIcon(QIcon(resource_path("assets/icon.ico")))
     w = MainWindow()
     w.resize(1100, 700)
     w.show()

@@ -1,5 +1,5 @@
 __app_name__ = "Controllo Fatture Vainieri"
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 # IMPORTANTE:
 # GitHub API vuole owner/repo. Cambia questo con il tuo.
