@@ -18,7 +18,6 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 DefaultDirName={#MyDefaultDir}
 DefaultGroupName={#MyAppName}
-DisableProgramGroupPage=yes
 OutputDir=Output
 OutputBaseFilename=ControlloFattureVainieri-Setup
 Compression=lzma
@@ -29,6 +28,9 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=yes
 
+[Tasks]
+Name: "desktopicon"; Description: "Crea un'icona sul Desktop"; GroupDescription: "Icone aggiuntive:"; Flags: unchecked
+
 [Languages]
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 
@@ -38,6 +40,9 @@ Source: "..\dist\ControlloFattureVainieri\*"; DestDir: "{app}"; Flags: ignorever
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Disinstalla {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\Disinstalla {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Avvia {#MyAppName}"; Flags: nowait postinstall skipifsilent
