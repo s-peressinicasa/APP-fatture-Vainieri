@@ -1,0 +1,67 @@
+name: Build & Release (Windows)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $ver = $tag.TrimStart("v")
+          echo "APP_VERSION=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Version: $ver"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build exe (PyInstaller)
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean build.spec
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\ControlloFattureVainieri.iss"
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $installer = "installer\Output\ControlloFattureVainieri-Setup.exe"
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()
+          "$hash  ControlloFattureVainieri-Setup.exe" | Out-File "installer\Output\ControlloFattureVainieri-Setup.exe.sha256" -Encoding ascii
+          Get-Content "installer\Output\ControlloFattureVainieri-Setup.exe.sha256"
+
+      - name: Create GitHub Release + upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            installer/Output/ControlloFattureVainieri-Setup.exe
+            installer/Output/ControlloFattureVainieri-Setup.exe.sha256
+          generate_release_notes: true

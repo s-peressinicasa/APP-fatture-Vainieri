@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build
+build/
+dist/
+*.spec
+
+# Inno output
+installer/Output/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
