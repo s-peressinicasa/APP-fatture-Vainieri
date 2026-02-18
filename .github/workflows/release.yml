@@ -45,10 +45,11 @@ jobs:
         run: |
           choco install innosetup -y
 
-      - name: Build installer (Inno Setup)
+      - name: Run Inno Setup
         shell: pwsh
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\ControlloFattureVainieri.iss"
+          $iscc = (Get-Command ISCC.exe -ErrorAction Stop).Source
+          & $iscc installer\ControlloFattureVainieri.iss
 
       - name: Generate SHA256
         shell: pwsh

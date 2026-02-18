@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import shutil
 import tempfile
 import traceback
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import pandas as pd
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal, QStandardPaths
 from PySide6.QtGui import QAction, QFontMetrics, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -26,6 +27,51 @@ from app.engine.controllo_fatture_2026 import crea_report_excel as crea_report_e
 from app.engine.controllo_fatture_2025 import crea_report_excel as crea_report_excel_2025
 
 
+
+
+APP_ID = "ControlloFattureVainieri"
+
+def ensure_app_storage() -> dict[str, str]:
+    """Crea (se mancano) cartelle e file locali per config/cache.
+
+    - Config: %APPDATA%\ControlloFattureVainieri
+    - Cache:  %LOCALAPPDATA%\ControlloFattureVainieri (con sottocartelle cache/logs/downloads)
+    """
+    appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
+    localappdata = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+
+    config_dir = os.path.join(appdata, APP_ID)
+    cache_dir = os.path.join(localappdata, APP_ID)
+
+    os.makedirs(config_dir, exist_ok=True)
+    os.makedirs(cache_dir, exist_ok=True)
+
+    cache_cache = os.path.join(cache_dir, "cache")
+    cache_logs = os.path.join(cache_dir, "logs")
+    cache_downloads = os.path.join(cache_dir, "downloads")
+    for d in (cache_cache, cache_logs, cache_downloads):
+        os.makedirs(d, exist_ok=True)
+
+    settings_path = os.path.join(config_dir, "settings.json")
+    recents_path = os.path.join(config_dir, "recent_files.json")
+
+    if not os.path.exists(settings_path):
+        with open(settings_path, "w", encoding="utf-8") as f:
+            json.dump({"version": __version__}, f, ensure_ascii=False, indent=2)
+
+    if not os.path.exists(recents_path):
+        with open(recents_path, "w", encoding="utf-8") as f:
+            json.dump([], f, ensure_ascii=False, indent=2)
+
+    return {
+        "config_dir": config_dir,
+        "cache_dir": cache_dir,
+        "settings_path": settings_path,
+        "recents_path": recents_path,
+        "cache_cache": cache_cache,
+        "cache_logs": cache_logs,
+        "cache_downloads": cache_downloads,
+    }
 def prepare_preview_df(df: pd.DataFrame) -> pd.DataFrame:
     df2 = df.copy()
 
@@ -443,11 +489,10 @@ class MainWindow(QMainWindow):
             self._progress = None
 
         self.btn_generate.setEnabled(True)
-        self.lbl_status.setText("Report generato con successo!")
         self._report_path = result.report_path
         self.btn_save.setEnabled(True)
-
-        QMessageBox.information(self, "OK", result.msg)
+        # Salvataggio: solo quando l'utente clicca "Salva report Excel..."
+        self.lbl_status.setText("Report pronto. Clicca su \"Salva report Excel...\" per scegliere dove salvarlo.")
 
         try:
             df_raw = pd.read_excel(
@@ -484,6 +529,12 @@ class MainWindow(QMainWindow):
 
         self.model.set_df(df)
         self.table.resizeColumnsToContents()
+    def _default_download_target(self, filename: str) -> str:
+        # Usa la cartella Download di Windows (Qt) come default
+        dl = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation)
+        if not dl:
+            dl = os.path.join(os.path.expanduser("~"), "Downloads")
+        return os.path.join(dl, filename)
 
     def on_save_report(self):
         if not self._report_path or not os.path.exists(self._report_path):
@@ -493,11 +544,14 @@ class MainWindow(QMainWindow):
         out, _ = QFileDialog.getSaveFileName(
             self,
             "Salva report Excel",
-            "report_controllo_fattura.xlsx",
+            self._default_download_target("report_controllo_fattura.xlsx"),
             "Excel (*.xlsx)"
         )
         if not out:
             return
+
+        if not out.lower().endswith(".xlsx"):
+            out += ".xlsx"
 
         try:
             shutil.copyfile(self._report_path, out)
@@ -747,6 +801,7 @@ class MainWindow(QMainWindow):
         self._drop_overlay.raise_()
 
 def main():
+    ensure_app_storage()
     app = QApplication([])
     app.setWindowIcon(QIcon(resource_path("assets/icon.ico")))
     w = MainWindow()
