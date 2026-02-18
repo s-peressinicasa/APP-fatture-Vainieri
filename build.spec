@@ -8,7 +8,7 @@ block_cipher = None
 # PyInstaller definisce sempre SPECPATH = cartella dove si trova questo .spec
 PROJECT_ROOT = os.path.abspath(SPECPATH)
 
-ENTRY_SCRIPT = os.path.join(PROJECT_ROOT, "src", "app", "main.py")
+ENTRY_SCRIPT = os.path.join(PROJECT_ROOT, "main.py")
 ICON_ICO = os.path.join(PROJECT_ROOT, "assets", "icon.ico")
 
 hiddenimports = []
@@ -18,11 +18,13 @@ hiddenimports += collect_submodules("pdfplumber")
 
 a = Analysis(
     [ENTRY_SCRIPT],
-    pathex=[PROJECT_ROOT],
+    pathex=[PROJECT_ROOT, os.path.join(PROJECT_ROOT, "src")],
     binaries=[],
     datas=[
         (os.path.join(PROJECT_ROOT, "assets", "icon.ico"), "assets"),
         (os.path.join(PROJECT_ROOT, "assets", "icon.png"), "assets"),
+        (os.path.join(PROJECT_ROOT, "src", "app", "engine", "prezzi_vainieri_2025.xlsx"), "app/engine"),
+        (os.path.join(PROJECT_ROOT, "src", "app", "engine", "prezzi_vainieri_2026.xlsx"), "app/engine"),
     ],
     hiddenimports=hiddenimports,
     hookspath=[],
