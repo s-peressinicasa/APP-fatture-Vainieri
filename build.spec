@@ -1,7 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
-from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
@@ -12,9 +11,6 @@ ENTRY_SCRIPT = os.path.join(PROJECT_ROOT, "main.py")
 ICON_ICO = os.path.join(PROJECT_ROOT, "assets", "icon.ico")
 
 hiddenimports = []
-hiddenimports += collect_submodules("pandas")
-hiddenimports += collect_submodules("openpyxl")
-hiddenimports += collect_submodules("pdfplumber")
 
 a = Analysis(
     [ENTRY_SCRIPT],
@@ -30,7 +26,37 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["pandas.tests",
+        "numpy.tests",
+        "openpyxl.tests",
+        "pytest",
+        
+        # Web / QML / Quick
+        "PySide6.QtQml",
+        "PySide6.QtQuick",
+        "PySide6.QtQuickWidgets",
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebEngineQuick",
+
+        # Multimedia / device / extra
+        "PySide6.QtMultimedia",
+        "PySide6.QtMultimediaWidgets",
+        "PySide6.QtBluetooth",
+        "PySide6.QtNfc",
+        "PySide6.QtSensors",
+        "PySide6.QtPositioning",
+        "PySide6.QtLocation",
+        "PySide6.QtWebSockets",
+        "PySide6.QtSerialPort",
+        "PySide6.QtTextToSpeech",
+
+        # 3D / remote objects (se presenti)
+        "PySide6.Qt3DCore",
+        "PySide6.Qt3DRender",
+        "PySide6.Qt3DExtras",
+        "PySide6.QtRemoteObjects",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

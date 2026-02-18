@@ -1286,9 +1286,9 @@ def crea_report_excel(
     ft6_list: List[str] = []
     dtft_show_list: List[str] = []
 
-    for _, row in df_ship.iterrows():
-        typ = row.get("dt_ft_type")
-        num = row.get("dt_ft_num")
+    for row in df_ship.itertuples(index=False):
+        typ = getattr(row, "dt_ft_type", None)
+        num = getattr(row, "dt_ft_num", None)
         dtft_show_list.append(format_dt_ft(typ, num))
 
         ddt6, _ = normalize_pdf_dt(typ, num)
@@ -1383,8 +1383,9 @@ def crea_report_excel(
 
     # Se l'excel non è stato caricato correttamente, segnalo l'errore alle sole righe FR
     if france_xlsx_path and excel_load_error:
-        for idx, row in df_out.iterrows():
-            if row.get("country") == "FR":
+        for row in df_out.itertuples():
+            idx = row.Index
+            if getattr(row, "country", None) == "FR":
                 errs_fr_per_row[idx].append(f"file excel non compatibile: {excel_load_error}")
 
     if france_xlsx_path and not excel_load_error:
@@ -1392,8 +1393,9 @@ def crea_report_excel(
         pdf_idx_by_ddt: Dict[str, List[int]] = defaultdict(list)
         pdf_idx_by_ft: Dict[str, List[int]] = defaultdict(list)
 
-        for idx, row in df_out.iterrows():
-            country = row.get("country")
+        for row in df_out.itertuples():
+            idx = row.Index
+            country = getattr(row, "country", None)
 
             # confronto volumi solo per FR
             if country != "FR":
@@ -1401,13 +1403,13 @@ def crea_report_excel(
                     errs_fr_per_row[idx].append("non è una spedizione in Francia")
                 continue
 
-            typ = str(row.get("dt_ft_type") or "").strip().upper()
+            typ = str(getattr(row, "dt_ft_type", None) or "").strip().upper()
 
             # --- match per DDT (DT) ---
             if typ == "DT":
-                ddt6 = row.get("ddt6") or ""
+                ddt6 = getattr(row, "ddt6", None) or ""
                 if not ddt6:
-                    ddt6, err = normalize_pdf_dt(row.get("dt_ft_type"), row.get("dt_ft_num"))
+                    ddt6, err = normalize_pdf_dt(getattr(row, "dt_ft_type", None), getattr(row, "dt_ft_num", None))
                     if err:
                         errs_fr_per_row[idx].append(err)
                         continue
@@ -1425,9 +1427,9 @@ def crea_report_excel(
 
             # --- match per Fattura (FT) ---
             if typ == "FT":
-                ft6 = row.get("ft6") or ""
+                ft6 = getattr(row, "ft6", None) or ""
                 if not ft6:
-                    ft6, err = normalize_pdf_ft(row.get("dt_ft_type"), row.get("dt_ft_num"))
+                    ft6, err = normalize_pdf_ft(getattr(row, "dt_ft_type", None), getattr(row, "dt_ft_num", None))
                     if err:
                         errs_fr_per_row[idx].append(err)
                         continue

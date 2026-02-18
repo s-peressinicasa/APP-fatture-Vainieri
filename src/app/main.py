@@ -100,6 +100,54 @@ class Worker(QThread):
         except Exception:
             self.finished_err.emit(traceback.format_exc())
 
+class DropOverlay(QWidget):
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setObjectName("DropOverlay")
+
+        # Non deve “bloccare” click o drag: solo grafica
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAcceptDrops(False)
+        self.hide()
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 18, 18, 18)
+        lay.addStretch(1)
+
+        self.lbl = QLabel("Rilascia qui i file…", self)
+        self.lbl.setMinimumWidth(420)
+        self.lbl.setMaximumWidth(700)
+        self.lbl.setAlignment(Qt.AlignCenter)
+        self.lbl.setWordWrap(True)
+        lay.addWidget(self.lbl, 0, Qt.AlignCenter)
+
+        lay.addStretch(1)
+
+        self.setStyleSheet("""
+        QWidget#DropOverlay {
+            background: rgba(0, 0, 0, 25);
+            border: 2px dashed rgba(60, 60, 60, 160);
+            border-radius: 14px;
+        }
+        QWidget#DropOverlay QLabel {
+            background: rgba(255, 255, 255, 235);
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        """)
+
+    def set_hint(self, pdf_count: int, xlsx_count: int):
+        if pdf_count and xlsx_count:
+            self.lbl.setText("Rilascia per aggiungere i PDF e impostare l’Excel.")
+        elif pdf_count:
+            self.lbl.setText("Rilascia per aggiungere i PDF.")
+        elif xlsx_count:
+            self.lbl.setText("Rilascia per impostare l’Excel.")
+        else:
+            self.lbl.setText("Rilascia qui i file…")
+
 
 class MainWindow(QMainWindow):
     PDF_COLS = 3
@@ -108,6 +156,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setAcceptDrops(True)
         self.setWindowIcon(QIcon(resource_path("assets/icon.ico")))
         self.setWindowTitle(f"{__app_name__}  —  v{__version__}")
 
@@ -139,6 +188,8 @@ class MainWindow(QMainWindow):
         # Central UI
         root = QWidget()
         self.setCentralWidget(root)
+        self._drop_overlay = DropOverlay(self)   # <-- parent = MainWindow
+        self._sync_drop_overlay()
         main = QVBoxLayout(root)
 
         title = QLabel("📄 Controllo Fatture Vainieri")
@@ -272,6 +323,7 @@ class MainWindow(QMainWindow):
         # aggiornamento leggero: ricalcola testi elided con nuova larghezza
         if self._pdf_paths:
             self.render_pdf_grid()
+        self._sync_drop_overlay()
 
     # ---------------- PDF GRID ----------------
 
@@ -369,10 +421,21 @@ class MainWindow(QMainWindow):
         self._progress.setWindowModality(Qt.WindowModal)
         self._progress.show()
 
-        self._worker = Worker(year, pdf_paths, fr)
+        try:
+            self._worker = Worker(year, pdf_paths, fr)
+        except Exception as e:
+            if self._progress:
+                self._progress.close()
+                self._progress = None
+            self.btn_generate.setEnabled(True)
+            self.lbl_status.setText("Errore")
+            QMessageBox.critical(self, "Errore", f"{e}")
+            return
+
         self._worker.finished_ok.connect(self.on_generated_ok)
         self._worker.finished_err.connect(self.on_generated_err)
         self._worker.start()
+
 
     def on_generated_ok(self, result: ReportResult):
         if self._progress:
@@ -502,6 +565,186 @@ class MainWindow(QMainWindow):
             prog.close()
             QMessageBox.critical(self, "Aggiornamento", f"Errore durante l’aggiornamento:\n\n{e}")
 
+
+    def _extract_local_files(self, event) -> list[str]:
+        """Estrae path locali da un drop (file o cartelle).
+        Gestisce anche URL file://... (alcune sorgenti Windows li passano così).
+        """
+        if not event.mimeData().hasUrls():
+            return []
+
+        paths: list[str] = []
+        for url in event.mimeData().urls():
+            p = url.toLocalFile()
+
+            # Fallback per URL tipo file:///C:/...
+            if not p:
+                s = url.toString()
+                if s.startswith("file:///"):
+                    p = s[8:].replace("/", "\\")
+                elif s.startswith("file://"):
+                    p = s[7:].replace("/", "\\")
+                else:
+                    p = s
+
+            if p:
+                # accetta file o cartelle (l'espansione la facciamo dopo)
+                if os.path.isfile(p) or os.path.isdir(p) or (":" in p):
+                    paths.append(p)
+
+        return paths
+
+    def _count_supported(self, paths: list[str]) -> tuple[int, int]:
+        pdfs = 0
+        excels = 0
+        for p in paths:
+            ext = os.path.splitext(p)[1].lower()
+            if ext == ".pdf":
+                pdfs += 1
+            elif ext in (".xlsx", ".xls"):
+                excels += 1
+        return pdfs, excels
+
+
+
+    def dragEnterEvent(self, event):
+        paths = self._extract_local_files(event)
+        pdfs, excels = self._count_supported(paths)
+
+        if pdfs or excels:
+            self._drop_overlay.set_hint(pdfs, excels)
+            self._sync_drop_overlay()
+            self._drop_overlay.show()
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        paths = self._extract_local_files(event)
+        pdfs, excels = self._count_supported(paths)
+
+        if pdfs or excels:
+            self._drop_overlay.set_hint(pdfs, excels)
+            self._sync_drop_overlay()
+            self._drop_overlay.show()
+            event.acceptProposedAction()
+        else:
+            self._drop_overlay.hide()
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._drop_overlay.hide()
+        event.accept()
+
+
+    def dropEvent(self, event):
+        self._drop_overlay.hide()
+
+        paths = self._extract_local_files(event)
+        if not paths:
+            event.ignore()
+            return
+
+        self._handle_dropped_files(paths)
+        event.acceptProposedAction()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_drop_overlay()
+
+
+    def _handle_dropped_files(self, paths: list[str]):
+        # Espande eventuali cartelle trascinate (1 livello)
+        expanded: list[str] = []
+        for p in paths:
+            if os.path.isdir(p):
+                try:
+                    for name in os.listdir(p):
+                        expanded.append(os.path.join(p, name))
+                except Exception:
+                    pass
+            else:
+                expanded.append(p)
+
+        pdfs: list[str] = []
+        excels: list[str] = []
+
+        for p in expanded:
+            ext = os.path.splitext(p)[1].lower()
+            if ext == ".pdf":
+                pdfs.append(p)
+            elif ext in (".xlsx", ".xls"):
+                excels.append(p)
+
+        recognized = len(pdfs) + len(excels)
+
+        added_pdfs = 0
+        if pdfs:
+            existing = set(self._pdf_paths)
+            for p in pdfs:
+                if p not in existing:
+                    self._pdf_paths.append(p)
+                    existing.add(p)
+                    added_pdfs += 1
+            if added_pdfs:
+                self.render_pdf_grid()
+
+        set_excel = False
+        had_unsupported_excel = False
+        if excels:
+            # Se arrivano più excel, prendo il primo.
+            xls = excels[0]
+            if xls.lower().endswith(".xls"):
+                had_unsupported_excel = True
+                QMessageBox.warning(
+                    self,
+                    "Formato non supportato",
+                    "Hai trascinato un file .xls.\n"
+                    "Per ora è supportato solo .xlsx.\n"
+                    "Aprilo in Excel e salvalo come .xlsx, poi riprova."
+                )
+            else:
+                # Imposta l'Excel solo se cambia (evita popup su drop ripetuti)
+                if self.txt_france.text().strip() != xls:
+                    self.txt_france.setText(xls)
+                    set_excel = True
+
+        # Caso: almeno una modifica effettuata
+        if added_pdfs or set_excel:
+            parts = []
+            if added_pdfs:
+                parts.append(f"PDF aggiunti: {added_pdfs}")
+            if set_excel:
+                parts.append("Excel impostato")
+            self.lbl_status.setText(" • ".join(parts))
+            return
+
+        # Caso: nessun file riconosciuto
+        if recognized == 0:
+            QMessageBox.information(
+                self,
+                "Nessun file valido",
+                "Trascina PDF (.pdf) o Excel (.xlsx) nella finestra."
+            )
+            return
+
+        # Caso: file riconosciuti ma non applicabili (duplicati / stesso excel)
+        if had_unsupported_excel:
+            self.lbl_status.setText("Formato Excel non supportato (.xls)")
+        else:
+            self.lbl_status.setText("Nessun nuovo file da aggiungere")
+
+    def _sync_drop_overlay(self):
+        if getattr(self, "_drop_overlay", None) is None:
+            return
+        cw = self.centralWidget()
+        if cw is None:
+            return
+
+        # geometria del centralWidget dentro al QMainWindow (coords già relative al MainWindow)
+        rect = cw.geometry()
+        self._drop_overlay.setGeometry(rect)
+        self._drop_overlay.raise_()
 
 def main():
     app = QApplication([])
