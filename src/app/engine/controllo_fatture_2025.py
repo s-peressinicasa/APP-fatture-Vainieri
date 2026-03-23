@@ -37,9 +37,21 @@ def qta_is_one(q) -> bool:
         return False
 
 
-def round_volume_up_01(v) -> float:
-    """Arrotonda sempre il volume al primo decimale superiore."""
-    return math.ceil(float(v) * 10 - 1e-9) / 10.0
+def round_volume_up_01(v) -> Optional[float]:
+    """Arrotonda sempre il volume al primo decimale superiore.
+
+    Ritorna None per valori mancanti/non numerici/NaN, così il caricamento
+    dell'excel non fallisce su celle vuote o formule che producono NaN.
+    """
+    if v is None:
+        return None
+    try:
+        fv = float(v)
+    except Exception:
+        return None
+    if math.isnan(fv) or math.isinf(fv):
+        return None
+    return math.ceil(fv * 10 - 1e-9) / 10.0
 
 
 def normalize_pdf_dt(dt_ft_type: Optional[str], dt_ft_num: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
@@ -102,8 +114,13 @@ def format_dt_ft(dt_ft_type: Optional[str], dt_ft_num: Optional[str]) -> str:
 
 def normalize_excel_ddt(value) -> Optional[str]:
     """Normalizza il DDT dell'excel prendendo SOLO le ultime 6 cifre."""
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
         return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
     digits = re.sub(r"\D", "", str(value))
     if not digits:
         return None
@@ -227,24 +244,35 @@ def load_france_excel(france_xlsx_path: str) -> Tuple[
     df = df.dropna(subset=keep_cols, how="all")
 
     def _to_float(x):
-        if x is None or (isinstance(x, float) and pd.isna(x)):
+        if x is None:
             return None
+        try:
+            if pd.isna(x):
+                return None
+        except Exception:
+            pass
         if isinstance(x, str):
             s = x.strip()
             if not s:
                 return None
             s = s.replace(" ", "")
             try:
-                return parse_float_eu(s)
+                val = parse_float_eu(s)
             except Exception:
                 try:
-                    return float(s.replace(",", "."))
+                    val = float(s.replace(",", "."))
                 except Exception:
                     return None
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return val
         try:
-            return float(x)
+            val = float(x)
         except Exception:
             return None
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
 
     def _to_str(x):
         if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -317,7 +345,7 @@ def load_france_excel(france_xlsx_path: str) -> Tuple[
                 cliente_map[k] = ""
 
             # Volume
-            vols = [v for v in grp["_vol"].tolist() if v is not None]
+            vols = [v for v in grp["_vol"].tolist() if v is not None and not pd.isna(v)]
             if not vols:
                 _add_err(k, "errore volume in file excel: volume mancante")
                 continue
