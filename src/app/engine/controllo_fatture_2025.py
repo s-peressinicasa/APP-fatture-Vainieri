@@ -37,6 +37,11 @@ def qta_is_one(q) -> bool:
         return False
 
 
+def round_volume_up_01(v) -> float:
+    """Arrotonda sempre il volume al primo decimale superiore."""
+    return math.ceil(float(v) * 10 - 1e-9) / 10.0
+
+
 def normalize_pdf_dt(dt_ft_type: Optional[str], dt_ft_num: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     """Normalizza il numero DDT letto dal PDF.
 
@@ -317,7 +322,7 @@ def load_france_excel(france_xlsx_path: str) -> Tuple[
                 _add_err(k, "errore volume in file excel: volume mancante")
                 continue
 
-            vols_1 = [round(float(v), 1) for v in vols]
+            vols_1 = [round_volume_up_01(v) for v in vols]
             if any(v != vols_1[0] for v in vols_1[1:]):
                 _add_err(k, f"errore volume in file excel: volumi diversi per lo stesso {kind_label}")
                 continue
@@ -1458,10 +1463,10 @@ def crea_report_excel(
             vol_xls = ddt_excel_vol_map.get(ddt6)
             if vol_xls is None:
                 continue
-            if round(float(vol_pdf), 1) != round(float(vol_xls), 1):
+            if round_volume_up_01(vol_pdf) != round_volume_up_01(vol_xls):
                 msg = (
                     "volume diverso tra fattura e file excel "
-                    f"(PDF={round(float(vol_pdf), 1)} / Excel={round(float(vol_xls), 1)})"
+                    f"(PDF={round_volume_up_01(vol_pdf)} / Excel={round_volume_up_01(vol_xls)})"
                 )
                 for i in idxs:
                     errs_fr_per_row[i].append(msg)
@@ -1471,10 +1476,10 @@ def crea_report_excel(
             vol_xls = ft_excel_vol_map.get(ft6)
             if vol_xls is None:
                 continue
-            if round(float(vol_pdf), 1) != round(float(vol_xls), 1):
+            if round_volume_up_01(vol_pdf) != round_volume_up_01(vol_xls):
                 msg = (
                     "volume diverso tra fattura e file excel "
-                    f"(PDF={round(float(vol_pdf), 1)} / Excel={round(float(vol_xls), 1)})"
+                    f"(PDF={round_volume_up_01(vol_pdf)} / Excel={round_volume_up_01(vol_xls)})"
                 )
                 for i in idxs:
                     errs_fr_per_row[i].append(msg)
