@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import pandas as pd
-from PySide6.QtCore import Qt, QThread, Signal, QStandardPaths
+from PySide6.QtCore import Qt, QThread, Signal, QStandardPaths, QTimer
 from PySide6.QtGui import QAction, QFontMetrics, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -27,9 +27,8 @@ from app.engine.controllo_fatture_2026 import crea_report_excel as crea_report_e
 from app.engine.controllo_fatture_2025 import crea_report_excel as crea_report_excel_2025
 
 
-
-
 APP_ID = "ControlloFattureVainieri"
+
 
 def ensure_app_storage() -> dict[str, str]:
     """Crea (se mancano) cartelle e file locali per config/cache.
@@ -72,6 +71,9 @@ def ensure_app_storage() -> dict[str, str]:
         "cache_logs": cache_logs,
         "cache_downloads": cache_downloads,
     }
+
+
+
 def prepare_preview_df(df: pd.DataFrame) -> pd.DataFrame:
     df2 = df.copy()
 
@@ -116,9 +118,12 @@ def prepare_preview_df(df: pd.DataFrame) -> pd.DataFrame:
 
     return df2
 
+
+
 def resource_path(relative_path: str) -> str:
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base_path, relative_path)
+
 
 @dataclass
 class ReportResult:
@@ -145,6 +150,28 @@ class Worker(QThread):
             self.finished_ok.emit(ReportResult(msg=msg, report_path=out_path))
         except Exception:
             self.finished_err.emit(traceback.format_exc())
+
+
+class UpdateCheckWorker(QThread):
+    finished_ok = Signal(object)  # info oppure None
+    finished_err = Signal(str)
+
+    def __init__(self, current_version: str):
+        super().__init__()
+        self.current_version = current_version
+
+    def run(self):
+        try:
+            updater = GitHubReleaseUpdater(
+                repo_slug=GITHUB_REPO_SLUG,
+                installer_asset_name=INSTALLER_ASSET_NAME,
+                sha256_asset_name=INSTALLER_SHA256_ASSET_NAME,
+            )
+            info = updater.check(self.current_version)
+            self.finished_ok.emit(info)
+        except Exception:
+            self.finished_err.emit(traceback.format_exc())
+
 
 class DropOverlay(QWidget):
     def __init__(self, parent: QWidget):
@@ -211,6 +238,11 @@ class MainWindow(QMainWindow):
 
         # Lista PDF interna (renderizzata nella griglia)
         self._pdf_paths: list[str] = []
+
+        # Stato controllo aggiornamenti
+        self._update_check_worker: Optional[UpdateCheckWorker] = None
+        self._update_check_mode: Optional[str] = None  # "startup" | "manual"
+        self._startup_update_check_scheduled = False
 
         # Menu
         m_file = self.menuBar().addMenu("File")
@@ -482,7 +514,6 @@ class MainWindow(QMainWindow):
         self._worker.finished_err.connect(self.on_generated_err)
         self._worker.start()
 
-
     def on_generated_ok(self, result: ReportResult):
         if self._progress:
             self._progress.close()
@@ -529,6 +560,7 @@ class MainWindow(QMainWindow):
 
         self.model.set_df(df)
         self.table.resizeColumnsToContents()
+
     def _default_download_target(self, filename: str) -> str:
         # Usa la cartella Download di Windows (Qt) come default
         dl = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation)
@@ -561,23 +593,59 @@ class MainWindow(QMainWindow):
 
     # ---------------- Update ----------------
 
-    def on_check_updates(self):
-        updater = GitHubReleaseUpdater(
-            repo_slug=GITHUB_REPO_SLUG,
-            installer_asset_name=INSTALLER_ASSET_NAME,
-            sha256_asset_name=INSTALLER_SHA256_ASSET_NAME,
-        )
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_drop_overlay()
 
-        try:
-            info = updater.check(__version__)
-        except Exception as e:
-            QMessageBox.warning(self, "Update", f"Impossibile controllare aggiornamenti.\n\n{e}")
+        if not self._startup_update_check_scheduled:
+            self._startup_update_check_scheduled = True
+            QTimer.singleShot(1000, self.check_updates_on_startup)
+
+    def on_check_updates(self):
+        self._start_update_check(mode="manual")
+
+    def check_updates_on_startup(self):
+        self._start_update_check(mode="startup")
+
+    def _start_update_check(self, mode: str):
+        worker = self._update_check_worker
+        if worker is not None and worker.isRunning():
+            if mode == "manual":
+                QMessageBox.information(self, "Update", "Controllo aggiornamenti già in corso.")
             return
+
+        self._update_check_mode = mode
+        self._update_check_worker = UpdateCheckWorker(__version__)
+        self._update_check_worker.finished_ok.connect(self._on_update_check_ok)
+        self._update_check_worker.finished_err.connect(self._on_update_check_err)
+        self._update_check_worker.finished.connect(self._cleanup_update_check_worker)
+        self._update_check_worker.start()
+
+    def _cleanup_update_check_worker(self):
+        worker = self._update_check_worker
+        self._update_check_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+    def _on_update_check_ok(self, info):
+        mode = self._update_check_mode or "manual"
+        self._update_check_mode = None
 
         if not info:
-            QMessageBox.information(self, "Update", "Sei già all’ultima versione.")
+            if mode == "manual":
+                QMessageBox.information(self, "Update", "Sei già all’ultima versione.")
             return
 
+        self._prompt_and_install_update(info)
+
+    def _on_update_check_err(self, err: str):
+        mode = self._update_check_mode or "manual"
+        self._update_check_mode = None
+
+        if mode == "manual":
+            QMessageBox.warning(self, "Update", f"Impossibile controllare aggiornamenti.\n\n{err}")
+
+    def _prompt_and_install_update(self, info):
         msg = (
             f"È disponibile un aggiornamento: {info.latest_tag}\n\n"
             f"Note release:\n{info.notes[:1500]}\n\n"
@@ -585,6 +653,12 @@ class MainWindow(QMainWindow):
         )
         if QMessageBox.question(self, "Aggiornamento disponibile", msg) != QMessageBox.Yes:
             return
+
+        updater = GitHubReleaseUpdater(
+            repo_slug=GITHUB_REPO_SLUG,
+            installer_asset_name=INSTALLER_ASSET_NAME,
+            sha256_asset_name=INSTALLER_SHA256_ASSET_NAME,
+        )
 
         prog = QProgressDialog("Download aggiornamento…", "Annulla", 0, 100, self)
         prog.setWindowTitle("Aggiornamento")
@@ -618,7 +692,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             prog.close()
             QMessageBox.critical(self, "Aggiornamento", f"Errore durante l’aggiornamento:\n\n{e}")
-
 
     def _extract_local_files(self, event) -> list[str]:
         """Estrae path locali da un drop (file o cartelle).
@@ -659,8 +732,6 @@ class MainWindow(QMainWindow):
                 excels += 1
         return pdfs, excels
 
-
-
     def dragEnterEvent(self, event):
         paths = self._extract_local_files(event)
         pdfs, excels = self._count_supported(paths)
@@ -690,7 +761,6 @@ class MainWindow(QMainWindow):
         self._drop_overlay.hide()
         event.accept()
 
-
     def dropEvent(self, event):
         self._drop_overlay.hide()
 
@@ -701,11 +771,6 @@ class MainWindow(QMainWindow):
 
         self._handle_dropped_files(paths)
         event.acceptProposedAction()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self._sync_drop_overlay()
-
 
     def _handle_dropped_files(self, paths: list[str]):
         # Espande eventuali cartelle trascinate (1 livello)
@@ -799,6 +864,8 @@ class MainWindow(QMainWindow):
         rect = cw.geometry()
         self._drop_overlay.setGeometry(rect)
         self._drop_overlay.raise_()
+
+
 
 def main():
     ensure_app_storage()
