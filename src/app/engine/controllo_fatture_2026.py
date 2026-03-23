@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 import openpyxl
 from typing import Optional, Tuple, Dict, List, Union, Sequence
+from decimal import Decimal, ROUND_HALF_UP
 
 # ==============================
 # 1) PERCORSO FILE
@@ -1071,6 +1072,10 @@ def check_invoice(df_ship: pd.DataFrame, tolerance: float = 0.01):
     """
     errors = []
 
+    def _round_rate_01(v: float) -> float:
+        """Arrotonda al primo decimale con criterio commerciale (half up)."""
+        return float(Decimal(str(v)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+
     def _ceil_01(v: float) -> float:
         # epsilon per evitare che 1.20000000002 diventi 1.3
         return math.ceil(float(v) * 10 - 1e-9) / 10.0
@@ -1128,13 +1133,14 @@ def check_invoice(df_ship: pd.DataFrame, tolerance: float = 0.01):
                 continue
 
             prezzo_m3_fatt = trans_total / vol_total_round
+            tariff_cmp = _round_rate_01(tariff)
 
-            if abs(prezzo_m3_fatt - tariff) > tolerance:
+            if abs(prezzo_m3_fatt - tariff_cmp) > tolerance:
                 errors.append(
                     {
                         "tipo_errore": "accorpata_prezzo_m3_errato",
-                        "messaggio": f"Tariffa €/m³ errata: atteso {tariff}, trovato {round(prezzo_m3_fatt, 4)}",
-                        "tariffa_attesa": tariff,
+                        "messaggio": f"Tariffa €/m³ errata: atteso {tariff_cmp}, trovato {round(prezzo_m3_fatt, 4)}",
+                        "tariffa_attesa": tariff_cmp,
                         "tariffa_trovata": round(prezzo_m3_fatt, 4),
                         "group_id": gid,
                         "country": country,
@@ -1146,7 +1152,7 @@ def check_invoice(df_ship: pd.DataFrame, tolerance: float = 0.01):
                         "volume_totale_arrotondato": vol_total_round,
                         "trasporto_totale": trans_total,
                         "prezzo_m3_fatturato": round(prezzo_m3_fatt, 4),
-                        "prezzo_m3_tariffario": tariff,
+                        "prezzo_m3_tariffario": tariff_cmp,
                     }
                 )
 
@@ -1165,7 +1171,7 @@ def check_invoice(df_ship: pd.DataFrame, tolerance: float = 0.01):
                 "zone": zone,
                 "cliente": cliente,
                 "ns_rif": row.get("ns_rif"),
-                "dt_ft_num": getattr(row, "dt_ft_num", None),
+                "dt_ft_num": row.get("dt_ft_num"),
                 "volume": vol,
                 "qta": qta,
                 "trasporto_tot": row.get("trasporto_tot"),
@@ -1198,17 +1204,18 @@ def check_invoice(df_ship: pd.DataFrame, tolerance: float = 0.01):
                     errors.append(e)
                 else:
                     prezzo_m3_fatt = row["trasporto_tot"] / vol_arrotondato
-                    if abs(prezzo_m3_fatt - tariff) > tolerance:
+                    tariff_cmp = _round_rate_01(tariff)
+                    if abs(prezzo_m3_fatt - tariff_cmp) > tolerance:
                         e = base_info.copy()
                         e.update(
                             {
                                 "tipo_errore": "volume>1_prezzo_m3_errato",
-                                "messaggio": f"Tariffa €/m³ errata: atteso {tariff}, trovato {round(prezzo_m3_fatt, 4)}",
-                                "tariffa_attesa": tariff,
+                                "messaggio": f"Tariffa €/m³ errata: atteso {tariff_cmp}, trovato {round(prezzo_m3_fatt, 4)}",
+                                "tariffa_attesa": tariff_cmp,
                                 "tariffa_trovata": round(prezzo_m3_fatt, 4),
                                 "volume_arrotondato": vol_arrotondato,
                                 "prezzo_m3_fatturato": round(prezzo_m3_fatt, 4),
-                                "prezzo_m3_tariffario": tariff,
+                                "prezzo_m3_tariffario": tariff_cmp,
                             }
                         )
                         errors.append(e)
@@ -1239,7 +1246,7 @@ def check_invoice(df_ship: pd.DataFrame, tolerance: float = 0.01):
                     )
                     errors.append(e)
                 else:
-                    prezzo_atteso = tariff  # 1 m³ minimo fatturabile
+                    prezzo_atteso = _round_rate_01(tariff)  # 1 m³ minimo fatturabile
                     if abs(row["trasporto_tot"] - prezzo_atteso) > tolerance:
                         e = base_info.copy()
                         e.update(
@@ -1250,7 +1257,7 @@ def check_invoice(df_ship: pd.DataFrame, tolerance: float = 0.01):
                                 "prezzo_trovato": row["trasporto_tot"],
                                 "volume_arrotondato": vol_arrotondato,
                                 "prezzo_fatturato": row["trasporto_tot"],
-                                "prezzo_m3_tariffario": tariff,
+                                "prezzo_m3_tariffario": prezzo_atteso,
                             }
                         )
                         errors.append(e)
@@ -1319,9 +1326,9 @@ def crea_report_excel(
     ft6_list: List[str] = []
     dtft_show_list: List[str] = []
 
-    for row in df_ship.itertuples(index=False):
-        typ = getattr(row, "dt_ft_type", None)
-        num = getattr(row, "dt_ft_num", None)
+    for _, row in df_ship.iterrows():
+        typ = row.get("dt_ft_type")
+        num = row.get("dt_ft_num")
         dtft_show_list.append(format_dt_ft(typ, num))
 
         ddt6, _ = normalize_pdf_dt(typ, num)
@@ -1417,9 +1424,8 @@ def crea_report_excel(
 
     # Se l'excel non è stato caricato correttamente, segnalo l'errore a tutte le righe FR
     if france_xlsx_path and excel_load_error:
-        for row in df_out.itertuples():
-            idx = row.Index
-            if getattr(row, "country", None) == "FR":
+        for idx, row in df_out.iterrows():
+            if row.get("country") == "FR":
                 errs_fr_per_row[idx].append(f"errore caricamento file excel: {excel_load_error}")
 
     if france_xlsx_path and not excel_load_error:
@@ -1427,9 +1433,8 @@ def crea_report_excel(
         pdf_idx_by_ddt: Dict[str, List[int]] = defaultdict(list)
         pdf_idx_by_ft: Dict[str, List[int]] = defaultdict(list)
 
-        for row in df_out.itertuples():
-            idx = row.Index
-            country = getattr(row, "country", None)
+        for idx, row in df_out.iterrows():
+            country = row.get("country")
 
             # confronto volumi solo per FR
             if country != "FR":
@@ -1437,13 +1442,13 @@ def crea_report_excel(
                     errs_fr_per_row[idx].append("non è una spedizione in Francia")
                 continue
 
-            typ = str(getattr(row, "dt_ft_type", None) or "").strip().upper()
+            typ = str(row.get("dt_ft_type") or "").strip().upper()
 
             # --- match per DDT (DT) ---
             if typ == "DT":
-                ddt6 = getattr(row, "ddt6", None) or ""
+                ddt6 = row.get("ddt6") or ""
                 if not ddt6:
-                    ddt6, err = normalize_pdf_dt(getattr(row, "dt_ft_type", None), getattr(row, "dt_ft_num", None))
+                    ddt6, err = normalize_pdf_dt(row.get("dt_ft_type"), row.get("dt_ft_num"))
                     if err:
                         errs_fr_per_row[idx].append(err)
                         continue
@@ -1461,9 +1466,9 @@ def crea_report_excel(
 
             # --- match per Fattura (FT) ---
             if typ == "FT":
-                ft6 = getattr(row, "ft6", None) or ""
+                ft6 = row.get("ft6") or ""
                 if not ft6:
-                    ft6, err = normalize_pdf_ft(getattr(row, "dt_ft_type", None), getattr(row, "dt_ft_num", None))
+                    ft6, err = normalize_pdf_ft(row.get("dt_ft_type"), row.get("dt_ft_num"))
                     if err:
                         errs_fr_per_row[idx].append(err)
                         continue
