@@ -6,7 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 import openpyxl
 from typing import Optional, Tuple, Dict, List, Union, Sequence
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, ROUND_CEILING
 
 # ==============================
 # 1) PERCORSO FILE
@@ -38,7 +38,13 @@ def qta_is_one(q) -> bool:
 
 
 def round_volume_up_01(v) -> Optional[float]:
-    """Arrotonda sempre il volume al primo decimale superiore.
+    """Arrotonda il volume in due passaggi per il confronto con l'excel.
+
+    Regola richiesta:
+    1) se ci sono più di due decimali, arrotonda prima normalmente a 2 decimali
+       (ROUND_HALF_UP, es. 0.404 -> 0.40, 3.456 -> 3.46)
+    2) poi arrotonda sempre al primo decimale superiore
+       (es. 0.40 -> 0.4, 0.41 -> 0.5, 2.05 -> 2.1).
 
     Ritorna None per valori mancanti/non numerici/NaN, così il caricamento
     dell'excel non fallisce su celle vuote o formule che producono NaN.
@@ -51,7 +57,10 @@ def round_volume_up_01(v) -> Optional[float]:
         return None
     if math.isnan(fv) or math.isinf(fv):
         return None
-    return math.ceil(fv * 10 - 1e-9) / 10.0
+
+    v_2_dec = Decimal(str(fv)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    v_1_dec_up = (v_2_dec * Decimal('10')).to_integral_value(rounding=ROUND_CEILING) / Decimal('10')
+    return float(v_1_dec_up)
 
 
 def normalize_pdf_dt(dt_ft_type: Optional[str], dt_ft_num: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
