@@ -10,13 +10,13 @@ from dataclasses import dataclass
 from typing import Optional
 
 import pandas as pd
-from PySide6.QtCore import Qt, QThread, Signal, QStandardPaths, QTimer
-from PySide6.QtGui import QAction, QFontMetrics, QIcon
+from PySide6.QtCore import Qt, QThread, Signal, QStandardPaths, QTimer, QSize
+from PySide6.QtGui import QAction, QFontMetrics, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QFileDialog, QComboBox, QLineEdit, QMessageBox, QCheckBox,
     QTableView, QProgressDialog, QGroupBox, QTableWidget, QTableWidgetItem,
-    QAbstractItemView, QHeaderView
+    QAbstractItemView, QHeaderView, QProgressBar, QFrame
 )
 
 from app.version import __app_name__, __version__, GITHUB_REPO_SLUG, INSTALLER_ASSET_NAME, INSTALLER_SHA256_ASSET_NAME
@@ -123,6 +123,94 @@ def prepare_preview_df(df: pd.DataFrame) -> pd.DataFrame:
 def resource_path(relative_path: str) -> str:
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base_path, relative_path)
+
+
+class LoadingSplash(QWidget):
+    def __init__(self):
+        super().__init__(None, Qt.SplashScreen | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setObjectName("LoadingSplash")
+        self.setWindowTitle(f"{__app_name__} - avvio")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 24, 24, 24)
+
+        card = QFrame(self)
+        card.setObjectName("LoadingCard")
+        outer.addWidget(card)
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(26, 24, 26, 24)
+        lay.setSpacing(14)
+
+        self.logo = QLabel(self)
+        self.logo.setAlignment(Qt.AlignCenter)
+        self.logo.setFixedSize(132, 132)
+        logo_pixmap = QPixmap(resource_path("assets/icon.png"))
+        if logo_pixmap.isNull():
+            icon = QIcon(resource_path("assets/icon.ico"))
+            logo_pixmap = icon.pixmap(QSize(132, 132))
+        self.logo.setPixmap(logo_pixmap.scaled(132, 132, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        lay.addWidget(self.logo, 0, Qt.AlignHCenter)
+
+        title = QLabel(__app_name__, self)
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 20px; font-weight: 700; color: #111;")
+        lay.addWidget(title)
+
+        subtitle = QLabel("Avvio dell'applicazione in corso...", self)
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setStyleSheet("font-size: 12px; color: #555;")
+        lay.addWidget(subtitle)
+
+        self.status = QLabel("Inizializzazione...", self)
+        self.status.setAlignment(Qt.AlignCenter)
+        self.status.setWordWrap(True)
+        self.status.setMinimumWidth(360)
+        self.status.setStyleSheet("font-size: 12px; color: #222; padding-top: 4px;")
+        lay.addWidget(self.status)
+
+        self.progress = QProgressBar(self)
+        self.progress.setRange(0, 0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(10)
+        lay.addWidget(self.progress)
+
+        self.setStyleSheet("""
+            QWidget#LoadingSplash {
+                background: transparent;
+            }
+            QFrame#LoadingCard {
+                background: white;
+                border: 1px solid rgba(0, 0, 0, 25);
+                border-radius: 20px;
+            }
+            QProgressBar {
+                background: #f0f0f0;
+                border: 1px solid #dddddd;
+                border-radius: 5px;
+            }
+            QProgressBar::chunk {
+                background-color: #e5163d;
+                border-radius: 5px;
+            }
+        """)
+
+        self.resize(430, 320)
+
+    def set_message(self, message: str):
+        self.status.setText(message)
+        QApplication.processEvents()
+
+    def center_on_screen(self):
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        geom = screen.availableGeometry()
+        x = geom.x() + (geom.width() - self.width()) // 2
+        y = geom.y() + (geom.height() - self.height()) // 2
+        self.move(x, y)
+
 
 
 @dataclass
@@ -868,12 +956,30 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    ensure_app_storage()
     app = QApplication([])
     app.setWindowIcon(QIcon(resource_path("assets/icon.ico")))
+
+    splash = LoadingSplash()
+    splash.center_on_screen()
+    splash.set_message("Preparazione cartelle e configurazione...")
+    splash.show()
+    QApplication.processEvents()
+
+    ensure_app_storage()
+
+    splash.set_message("Caricamento interfaccia...")
+    QApplication.processEvents()
     w = MainWindow()
     w.resize(1100, 700)
+
+    splash.set_message("Verifica componenti finali...")
+    QApplication.processEvents()
     w.show()
+    splash.finish_timer = QTimer()
+    splash.finish_timer.setSingleShot(True)
+    splash.finish_timer.timeout.connect(splash.close)
+    splash.finish_timer.start(450)
+
     app.exec()
 
 
